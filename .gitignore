@@ -1,0 +1,5 @@
+# Build artifacts
+obj/
+
+# Generated batch file
+compile.bat 
