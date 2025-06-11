@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build and Run GB",
+            "type": "shell",
+            "command": "C:/devkitPro/msys2/msys2_shell.cmd -mingw64 -here -c './build.sh'",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}
