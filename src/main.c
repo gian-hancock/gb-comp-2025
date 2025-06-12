@@ -1,8 +1,8 @@
 #include <gb/gb.h>
 #include <gb/bgb_emu.h>
 #include <stdint.h>
-#include "../res/example_factory_1_small.h"
-#include "../res/tiles_small.h"
+#include "../res/empty_factory.h"
+#include "../res/tiles.h"
 
 // Item tile index (3rd tile in our tileset, so index 2)
 #define ITEM_TILE 130 // Single tile for item sprite (2 + 128)
@@ -99,8 +99,8 @@ void create_item(uint8_t x, uint8_t y)
 void init_gfx(void)
 {
     // Load Background tiles and then map
-    set_bkg_data(128u, 48u, tiles_small); // load into "block 1" (128-255) which is shared by sprites and background"
-    set_bkg_tiles(0, 0, 32u, 32u, example_factory_1_small);
+    set_bkg_data(128u, 48u, tiles); // load into "block 1" (128-255) which is shared by sprites and background"
+    set_bkg_tiles(0, 0, 32u, 32u, empty_factory);
 
     // Initialize belt grid
     init_belt_grid();

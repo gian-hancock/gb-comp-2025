@@ -1,6 +1,6 @@
 /*
 
- DUNGEON_MAP.H
+ EMPTY_FACTORY.H
 
  Map Include File.
 
@@ -8,7 +8,7 @@
    Section       : 
    Bank          : 0
    Map size      : 32 x 32
-   Tile set      : dungeon_32x32.gbr
+   Tile set      : tiles.gbr
    Plane count   : 1 plane (8 bits)
    Plane order   : Planes are continues
    Tile offset   : 0
@@ -18,11 +18,11 @@
 
 */
 
-#define dungeon_mapWidth 32
-#define dungeon_mapHeight 32
-#define dungeon_mapBank 0
+#define empty_factoryWidth 32
+#define empty_factoryHeight 32
+#define empty_factoryBank 0
 
-#define dungeon_map dungeon_mapPLN0
-extern const unsigned char dungeon_mapPLN0[];
+#define empty_factory empty_factoryPLN0
+extern unsigned char empty_factoryPLN0[];
 
-/* End of DUNGEON_MAP.H */
+/* End of EMPTY_FACTORY.H */
