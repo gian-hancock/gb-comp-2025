@@ -3,6 +3,7 @@
 # subdirectories and places the output in a "obj" subdirectory
 #
 
+# TODO: Move GBDK into this repo?
 # If you move this project you can change the directory 
 # to match your GBDK root directory (ex: GBDK_HOME = "C:/GBDK/"
 # ifndef GBDK_HOME
@@ -11,11 +12,9 @@
 
 LCC = $(GBDK_HOME)bin/lcc 
 
-# GBDK_DEBUG = ON
 ifdef GBDK_DEBUG
-	LCCFLAGS += -debug -v
+	LCCFLAGS += -debug -v -D BGB_DEBUG
 endif
-
 
 # You can set the name of the .gb ROM file here
 PROJECTNAME    = Example

@@ -1,10 +1,11 @@
 #include <gb/gb.h>
+#include <gb/bgb_emu.h>
 #include <stdint.h>
 #include "../res/example_factory_1_small.h"
 #include "../res/tiles_small.h"
 
 // Item tile index (3rd tile in our tileset, so index 2)
-#define ITEM_TILE 2 // Single tile for item sprite
+#define ITEM_TILE 130 // Single tile for item sprite (2 + 128)
 
 // Belt directions
 typedef enum
@@ -19,10 +20,10 @@ typedef enum
 // Belt tile indexes (2x2 tiles per belt)
 typedef enum
 {
-    BELT_RIGHT_START = 16, // Base tile for right-facing belt
-    BELT_LEFT_START = 20,  // Base tile for left-facing belt
-    BELT_DOWN_START = 24,  // Base tile for down-facing belt
-    BELT_UP_START = 28     // Base tile for up-facing belt
+    BELT_RIGHT_START = 144, // Base tile for right-facing belt (16 + 128)
+    BELT_LEFT_START = 148,  // Base tile for left-facing belt (20 + 128)
+    BELT_DOWN_START = 152,  // Base tile for down-facing belt (24 + 128)
+    BELT_UP_START = 156     // Base tile for up-facing belt (28 + 128)
 } BeltTile;
 
 // Store belt data in RAM (16x16 grid)
@@ -88,24 +89,17 @@ void place_belt(uint8_t x, uint8_t y, BeltDirection direction)
 // Create a sprite item at game tile coordinates (x,y)
 void create_item(uint8_t x, uint8_t y)
 {
-    // Convert game tile coordinates to GB tile coordinates
-    uint8_t gb_x = x * 2;
-    uint8_t gb_y = y * 2;
-
-    // Create single sprite for the item
-    set_sprite_tile(0, ITEM_TILE); // Use 3rd tile from our loaded tileset
-
-    // Position the sprite (centered in the game tile)
-    move_sprite(0, (gb_x * 8) + 4, (gb_y * 8) + 4); // +4 to center in 16x16 tile
-
-    // Show sprites
+    set_sprite_tile(0, ITEM_TILE);
+    move_sprite(0, x + 8, y + 16);
     SHOW_SPRITES;
+
+    BGB_printf("Created item at: (%d, %d)", x, y);
 }
 
 void init_gfx(void)
 {
     // Load Background tiles and then map
-    set_bkg_data(0, 48u, tiles_small);
+    set_bkg_data(128u, 48u, tiles_small); // load into "block 1" (128-255) which is shared by sprites and background"
     set_bkg_tiles(0, 0, 32u, 32u, example_factory_1_small);
 
     // Initialize belt grid
@@ -131,7 +125,7 @@ void init_gfx(void)
     }
 
     // Create an item at the start of the conveyor loop
-    create_item(2, 2);
+    create_item(0, 0);
 
     // Turn the background map on to make it visible
     SHOW_BKG;
@@ -139,6 +133,7 @@ void init_gfx(void)
 
 void main(void)
 {
+    BGB_MESSAGE("==== Init ====");
     init_gfx();
 
     // Loop forever

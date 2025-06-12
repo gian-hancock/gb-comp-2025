@@ -16,3 +16,4 @@ This project was adapted from the DBDK Game Boy [template](https://github.com/gb
 
 # TODO: Misc notes
 snippet to run game from CLI: `/c/Program\ Files/bgb/bgb.exe obj/Example.gb &`
+Tweak BGB settings so logs go to log file:
