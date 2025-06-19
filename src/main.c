@@ -18,10 +18,99 @@ typedef struct
     uint8_t sprite_id; // Track which sprite this item uses
 } Item;
 
-// Array to store all items
-Item items[MAX_ITEMS];
-uint8_t num_items = 0;      // Track number of active items
+// Ring buffer queue for items
+typedef struct
+{
+    Item buffer[MAX_ITEMS];
+    uint8_t front; // Index of the front (oldest) item
+    uint8_t back;  // Index of the back (newest) item
+    uint8_t size;  // Number of items in the queue
+} ItemQueue;
+
+// Global queue instance
+ItemQueue item_queue;
 uint8_t next_sprite_id = 0; // Track next available sprite
+
+// Queue operations
+void queue_init(ItemQueue *queue)
+{
+    queue->front = 0;
+    queue->back = 0;
+    queue->size = 0;
+}
+
+uint8_t queue_is_empty(ItemQueue *queue)
+{
+    return queue->size == 0;
+}
+
+uint8_t queue_is_full(ItemQueue *queue)
+{
+    return queue->size == MAX_ITEMS;
+}
+
+uint8_t queue_enqueue(ItemQueue *queue, Item item)
+{
+    if (queue_is_full(queue))
+    {
+        return 0; // Queue is full
+    }
+
+    queue->buffer[queue->back] = item;
+    queue->back = (queue->back + 1) % MAX_ITEMS;
+    queue->size++;
+    return 1; // Success
+}
+
+uint8_t queue_dequeue(ItemQueue *queue, Item *item)
+{
+    if (queue_is_empty(queue))
+    {
+        return 0; // Queue is empty
+    }
+
+    *item = queue->buffer[queue->front];
+    queue->front = (queue->front + 1) % MAX_ITEMS;
+    queue->size--;
+    return 1; // Success
+}
+
+uint8_t queue_peek(ItemQueue *queue, Item *item)
+{
+    if (queue_is_empty(queue))
+    {
+        return 0; // Queue is empty
+    }
+
+    *item = queue->buffer[queue->front];
+    return 1; // Success
+}
+
+// Get item at specific index in queue (0 = oldest, size-1 = newest)
+uint8_t queue_get_at(ItemQueue *queue, uint8_t index, Item *item)
+{
+    if (index >= queue->size)
+    {
+        return 0; // Index out of bounds
+    }
+
+    uint8_t actual_index = (queue->front + index) % MAX_ITEMS;
+    *item = queue->buffer[actual_index];
+    return 1; // Success
+}
+
+// Set item at specific index in queue (0 = oldest, size-1 = newest)
+uint8_t queue_set_at(ItemQueue *queue, uint8_t index, Item item)
+{
+    if (index >= queue->size)
+    {
+        return 0; // Index out of bounds
+    }
+
+    uint8_t actual_index = (queue->front + index) % MAX_ITEMS;
+    queue->buffer[actual_index] = item;
+    return 1; // Success
+}
 
 // Belt directions
 typedef enum
@@ -42,8 +131,12 @@ typedef enum
     BELT_RIGHT_START = 211, // Single tile for right-facing belt (83 + 128)
 } BeltTile;
 
+// TODO: is 16x16 the correct size now?
 // Store belt data in RAM (16x16 grid)
 BeltDirection belt_grid[16][16];
+
+// Function prototypes
+uint8_t boxes_overlap(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);
 
 // Initialize belt grid to empty
 void init_belt_grid(void)
@@ -60,7 +153,6 @@ void init_belt_grid(void)
 // Get belt type at position (returns NO_BELT if no belt)
 BeltDirection get_belt_at(uint8_t x, uint8_t y)
 {
-    BGB_printf("get_belt_at(%d, %d)", x, y);
     if (x >= 16 || y >= 16)
         return NO_BELT;
     return belt_grid[y][x];
@@ -100,37 +192,87 @@ void place_belt(uint8_t x, uint8_t y, BeltDirection direction)
     set_bkg_tiles(gb_x, gb_y, 1, 1, tiles);
 }
 
+// Check if a position would collide with any existing item
+uint8_t would_collide_at_position(uint8_t x, uint8_t y)
+{
+    // Convert to pixel coordinates
+    uint8_t pixel_x = x + 8;
+    uint8_t pixel_y = y + 16;
+
+    // Check collision with every existing item
+    for (uint8_t i = 0; i < item_queue.size; i++)
+    {
+        Item item;
+        if (queue_get_at(&item_queue, i, &item))
+        {
+            uint8_t other_x = item.x + 8;
+            uint8_t other_y = item.y + 16;
+            if (boxes_overlap(pixel_x, pixel_y, other_x, other_y))
+            {
+                return 1; // Collision detected
+            }
+        }
+    }
+    return 0; // No collision
+}
+
 // Create a sprite item at game tile coordinates (x,y)
 void create_item(uint8_t x, uint8_t y)
 {
-    if (num_items >= MAX_ITEMS)
+    BGB_printf("create_item(%d, %d)", x, y);
+    if (queue_is_full(&item_queue))
     {
         BGB_printf("Failed to create item - max items reached");
         return;
     }
 
+    // Check if the position would collide with any existing item
+    if (would_collide_at_position(x, y))
+    {
+        BGB_printf("Failed to create item - collision detected at (%d, %d)", x, y);
+        return;
+    }
+
     // Store item data
-    items[num_items].x = x;
-    items[num_items].y = y;
-    items[num_items].sprite_id = next_sprite_id;
-    num_items++;
+    Item item;
+    item.x = x;
+    item.y = y;
+    item.sprite_id = next_sprite_id;
+    if (queue_enqueue(&item_queue, item))
+    {
+        // Set up sprite with unique sprite ID
+        set_sprite_tile(next_sprite_id, ITEM_TILE);
+        move_sprite(next_sprite_id, x + 8, y + 16);
 
-    // Set up sprite with unique sprite ID
-    set_sprite_tile(next_sprite_id, ITEM_TILE);
-    move_sprite(next_sprite_id, x + 8, y + 16);
+        // Move to next sprite (wrap around at 40 sprites)
+        // TODO: How to handle when we have multiple different types of items?
+        next_sprite_id = (next_sprite_id + 1) % 40;
 
-    // Move to next sprite (wrap around at 40 sprites)
-    // TODO: How to handle when we have multiple different types of items?
-    next_sprite_id = (next_sprite_id + 1) % 40;
-
-    BGB_printf("Created item at: (%d, %d) with sprite %d", x, y, items[num_items - 1].sprite_id);
+        BGB_printf("Created item at: (%d, %d) with sprite %d", x, y, item.sprite_id);
+    }
 }
 
 // Initialize items array
 void init_items(void)
 {
-    num_items = 0;
+    queue_init(&item_queue);
     next_sprite_id = 0;
+}
+
+// Delete the oldest item from the queue
+void delete_oldest_item(void)
+{
+    Item item;
+    if (queue_dequeue(&item_queue, &item))
+    {
+        // Hide the sprite by moving it off screen
+        move_sprite(item.sprite_id, 0, 0);
+        BGB_printf("Deleted oldest item at: (%d, %d) with sprite %d", item.x, item.y, item.sprite_id);
+    }
+    else
+    {
+        BGB_printf("No items to delete");
+    }
 }
 
 // Check if an 8x8 box at (x,y) would be fully on screen
@@ -157,15 +299,19 @@ uint8_t would_collide_with_any_item(uint8_t item_index, uint8_t new_x, uint8_t n
 
     // TODO: Can maybe only check for collision with next item due to fifo constraints?
     // Check collision with every other item
-    for (uint8_t i = 0; i < num_items; i++)
+    for (uint8_t i = 0; i < item_queue.size; i++)
     {
-        if (i != item_index)
-        { // Don't check collision with self
-            uint8_t other_x = items[i].x + 8;
-            uint8_t other_y = items[i].y + 16;
-            if (boxes_overlap(pixel_x, pixel_y, other_x, other_y))
-            {
-                return 1; // Collision detected
+        Item item;
+        if (queue_get_at(&item_queue, i, &item))
+        {
+            if (i != item_index)
+            { // Don't check collision with self
+                uint8_t other_x = item.x + 8;
+                uint8_t other_y = item.y + 16;
+                if (boxes_overlap(pixel_x, pixel_y, other_x, other_y))
+                {
+                    return 1; // Collision detected
+                }
             }
         }
     }
@@ -176,29 +322,66 @@ uint8_t would_collide_with_any_item(uint8_t item_index, uint8_t new_x, uint8_t n
 void update_items(void)
 {
     // Process items in order (oldest first)
-    for (uint8_t i = 0; i < num_items; i++)
+    for (uint8_t i = 0; i < item_queue.size; i++)
     {
-        // Check if item is on belt
-        BeltDirection belt_dir = get_belt_at((items[i].x + 4) / 16, (items[i].y + 4) / 16); // TODO: Use constants for 4 and 16
-        if (belt_dir == NO_BELT)
+        Item item;
+        if (queue_get_at(&item_queue, i, &item))
         {
-            // Item is not on belt, so don't move it
-            continue;
-        }
+            // Check if item is on belt
+            BeltDirection belt_dir = get_belt_at((item.x + 4) / 8, (item.y + 4) / 8); // TODO: Use constants for 4 and 8
+            if (belt_dir == NO_BELT)
+            {
+                // Item is not on belt, so don't move it
+                continue;
+            }
 
-        // Convert from tile to pixel coordinates
-        uint8_t pixel_x = items[i].x + 8;
-        uint8_t pixel_y = items[i].y + 16;
+            // Convert from tile to pixel coordinates
+            // TODO: explain magic 8 & 16
+            uint8_t pixel_x = item.x + 8;
+            uint8_t pixel_y = item.y + 16;
 
-        // Check if moving down would keep item on screen and not collide with other items
-        if (is_on_screen(pixel_x, pixel_y + 1) &&
-            !would_collide_with_any_item(i, items[i].x, items[i].y + 1))
-        {
-            // Move sprite down by 1 pixel using this item's unique sprite
-            move_sprite(items[i].sprite_id, pixel_x, pixel_y + 1);
+            // Calculate new position based on belt direction
+            uint8_t new_x = item.x;
+            uint8_t new_y = item.y;
+            uint8_t new_pixel_x = pixel_x;
+            uint8_t new_pixel_y = pixel_y;
 
-            // Update stored position (in tile coordinates)
-            items[i].y = (pixel_y + 1 - 16);
+            switch (belt_dir)
+            {
+            case BELT_RIGHT:
+                new_x = item.x + 1;
+                new_pixel_x = pixel_x + 1;
+                break;
+            case BELT_LEFT:
+                new_x = item.x - 1;
+                new_pixel_x = pixel_x - 1;
+                break;
+            case BELT_DOWN:
+                new_y = item.y + 1;
+                new_pixel_y = pixel_y + 1;
+                break;
+            case BELT_UP:
+                new_y = item.y - 1;
+                new_pixel_y = pixel_y - 1;
+                break;
+            default:
+                continue; // Should not happen since we already checked for NO_BELT
+            }
+
+            // Check if moving would keep item on screen and not collide with other items
+            if (is_on_screen(new_pixel_x, new_pixel_y) &&
+                !would_collide_with_any_item(i, new_x, new_y))
+            {
+                // Move sprite using this item's unique sprite
+                move_sprite(item.sprite_id, new_pixel_x, new_pixel_y);
+
+                // Update stored position (in tile coordinates)
+                item.x = new_x;
+                item.y = new_y;
+
+                // Store the updated item back to the queue
+                queue_set_at(&item_queue, i, item);
+            }
         }
     }
 }
@@ -228,10 +411,10 @@ void init_gfx(void)
     {
         place_belt(x, 6, BELT_LEFT); // Left belts
     }
-    for (uint8_t y = 6; y > 2; y--)
-    {
-        place_belt(2, y, BELT_UP); // Up belts
-    }
+    // for (uint8_t y = 6; y > 2; y--)
+    // {
+    //     place_belt(2, y, BELT_UP); // Up belts
+    // }
 
     // Turn the background map on to make it visible
     SHOW_BKG;
@@ -244,13 +427,23 @@ void main(void)
     init_gfx();
 
     uint8_t frame_counter = 0; // Count frames for item spawning
+    uint8_t prev_buttons = 0;  // Track previous button state
 
     // Loop forever
     while (1)
     {
+        // Handle input
+        uint8_t buttons = joypad();
+        uint8_t a_pressed = (buttons & J_A) && !(prev_buttons & J_A);
+        if (a_pressed)
+        {
+            delete_oldest_item();
+        }
+        prev_buttons = buttons;
+
         // Update frame counter and spawn items
         frame_counter = (frame_counter + 1) % 32;
-        if (frame_counter == 0 && num_items < 5)
+        if (frame_counter == 0)
         {
             // Spawn new item at the start of the conveyor loop
             create_item(16, 16);
