@@ -3,12 +3,13 @@
 #include <stdint.h>
 #include "../res/empty_factory.h"
 #include "../res/tiles.h"
+#include "util.h"
 
 // Item tile index (3rd tile in our tileset, so index 2)
 #define ITEM_TILE 130 // Single tile for item sprite (2 + 128)
 
 // Maximum number of items that can exist at once
-#define MAX_ITEMS 16
+#define MAX_ITEMS 4
 
 // Structure to store item data
 typedef struct
@@ -195,6 +196,7 @@ void place_belt(uint8_t x, uint8_t y, BeltDirection direction)
 // Check if a position would collide with any existing item
 uint8_t would_collide_at_position(uint8_t x, uint8_t y)
 {
+    // TODO: understand +8 and +16
     // Convert to pixel coordinates
     uint8_t pixel_x = x + 8;
     uint8_t pixel_y = y + 16;
@@ -222,6 +224,7 @@ void create_item(uint8_t x, uint8_t y)
     BGB_printf("create_item(%d, %d)", x, y);
     if (queue_is_full(&item_queue))
     {
+        ASSERT(0, "Queue is full in create_item");
         BGB_printf("Failed to create item - max items reached");
         return;
     }
@@ -424,6 +427,9 @@ void init_gfx(void)
 void main(void)
 {
     BGB_MESSAGE("==== Init ====");
+#ifdef BGB_DEBUG
+    BGB_printf("BGB_DEBUG: %d", BGB_DEBUG);
+#endif
     init_gfx();
 
     uint8_t frame_counter = 0; // Count frames for item spawning

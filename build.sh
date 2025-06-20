@@ -13,6 +13,8 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+unset LCCFLAGS
+
 # FIXME:
 # Set GBDK_HOME environment variable
 export GBDK_HOME="/c/gbdk/"
@@ -20,26 +22,17 @@ export GBDK_HOME="/c/gbdk/"
 # Set debug flag if requested
 if [ "$DEBUG" = true ]; then
     echo "Building in debug mode..."
-    export LCCFLAGS="-debug -v -DBGB_DEBUG"
+    make GBDK_DEBUG=1 "$@"
 else
     echo "Building in release mode..."
-    unset LCCFLAGS
+    make "$@"
 fi
 
-echo "Building project..."
-make
+echo "Build successful!"
 
-if [ $? -eq 0 ]; then
-    echo "Build successful!"
-    
-    # Kill any existing BGB process
-    echo "Closing any existing BGB windows..."
-    taskkill //F //IM bgb.exe 2>/dev/null || true
-    
-    echo "Launching BGB..."
-    "/c/Program Files/bgb/bgb.exe" "obj/Example.gb" &
-else
-    echo "Build failed!"
-fi
+# Kill any existing BGB process
+echo "Closing any existing BGB windows..."
+taskkill //F //IM bgb.exe 2>/dev/null || true
 
-exit $? 
+echo "Launching BGB..."
+"/c/Program Files/bgb/bgb.exe" "obj/Example.gb" & 

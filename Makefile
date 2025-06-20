@@ -13,7 +13,10 @@
 LCC = $(GBDK_HOME)bin/lcc 
 
 ifdef GBDK_DEBUG
-	LCCFLAGS += -debug -v -D BGB_DEBUG
+LCCFLAGS += -debug -v -DBGB_DEBUG
+$(info Debug build)
+else
+$(info Release build)
 endif
 
 # You can set the name of the .gb ROM file here

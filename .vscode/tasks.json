@@ -4,7 +4,7 @@
         {
             "label": "Build and Run GB",
             "type": "shell",
-            "command": "C:/devkitPro/msys2/msys2_shell.cmd -mingw64 -here -c './build.sh'",
+            "command": "C:/devkitPro/msys2/msys2_shell.cmd -mingw64 -here -c './build.sh -d'",
             "group": {
                 "kind": "build",
                 "isDefault": true
