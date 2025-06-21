@@ -13,6 +13,12 @@
 #define FACTORY_GRID_WIDTH 16
 #define FACTORY_GRID_HEIGHT 16
 
+typedef enum
+{
+    ITEM_TYPE_COG,
+    ITEM_TYPE_CHIP,
+} ItemType;
+
 // Structure to store item data
 typedef struct
 {
@@ -30,30 +36,50 @@ typedef struct
     uint8_t front; // Index of the front (oldest) item
     uint8_t back;  // Index of the back (newest) item
     uint8_t size;  // Number of items in the queue
+    ItemType item_type;
 } ItemQueue;
 
 typedef struct
 {
     uint8_t item_capacity;
-    uint8_t item_count;
+    uint8_t cog_count;
+    uint8_t chip_count;
     // Coords of top left corner (in pixels). (0, 0) represents the top left of the screen.
     uint8_t x;
     uint8_t y;
 } AssemblyMachine;
 
+typedef struct
+{
+    uint8_t counter;
+    uint8_t frequency;
+    ItemQueue *queue;
+    ItemType item_type;
+    // Coords to place item at.
+    uint8_t x;
+    uint8_t y;
+} ItemSpawner;
+
 // State
-ItemQueue item_queue;
+ItemQueue queue_chips;
+ItemQueue queue_cogs;
 // TODO: Use index in underlying queue buffer as sprite_id?
 uint8_t next_sprite_id = 0; // Track next available sprite
 AssemblyMachine assembly_machine;
-
-// Queue operations
-void queue_init(ItemQueue *queue)
-{
-    queue->front = 0;
-    queue->back = 0;
-    queue->size = 0;
-}
+ItemSpawner spawner_cog = {
+    .counter = 0,
+    .frequency = 32,
+    .queue = &queue_cogs, // TODO: Rename to chip_queue
+    .item_type = ITEM_TYPE_COG,
+    .x = 8,
+    .y = 10 * 8};
+ItemSpawner spawner_chip = {
+    .counter = 0,
+    .frequency = 32,
+    .queue = &queue_chips, // TODO: Rename to chip_queue
+    .item_type = ITEM_TYPE_CHIP,
+    .x = 16,
+    .y = 16};
 
 uint8_t queue_is_empty(ItemQueue *queue)
 {
@@ -206,11 +232,12 @@ uint8_t would_collide_at_position(uint8_t x, uint8_t y)
     uint8_t pixel_x = x + 8;
     uint8_t pixel_y = y + 16;
 
-    // Check collision with every existing item
-    for (uint8_t i = 0; i < item_queue.size; i++)
+    // TODO: duplicated code
+    // Check collision with every existing item in chips queue
+    for (uint8_t i = 0; i < queue_chips.size; i++)
     {
         Item item;
-        if (queue_get_at(&item_queue, i, &item))
+        if (queue_get_at(&queue_chips, i, &item))
         {
             uint8_t other_x = item.x + 8;
             uint8_t other_y = item.y + 16;
@@ -220,14 +247,30 @@ uint8_t would_collide_at_position(uint8_t x, uint8_t y)
             }
         }
     }
+
+    // Check collision with every existing item in cogs queue
+    for (uint8_t i = 0; i < queue_cogs.size; i++)
+    {
+        Item item;
+        if (queue_get_at(&queue_cogs, i, &item))
+        {
+            uint8_t other_x = item.x + 8;
+            uint8_t other_y = item.y + 16;
+            if (boxes_overap_8x8(pixel_x, pixel_y, other_x, other_y))
+            {
+                return 1; // Collision detected
+            }
+        }
+    }
+
     return 0; // No collision
 }
 
 // Create a sprite item at game tile coordinates (x,y)
-void create_item(uint8_t x, uint8_t y)
+void create_item(uint8_t x, uint8_t y, ItemQueue *queue)
 {
     BGB_printf("create_item(%d, %d)", x, y);
-    if (queue_is_full(&item_queue))
+    if (queue_is_full(queue))
     {
         ASSERT(0, "Queue is full in create_item");
         BGB_printf("Failed to create item - max items reached");
@@ -247,10 +290,10 @@ void create_item(uint8_t x, uint8_t y)
     item.x = x;
     item.y = y;
     item.sprite_id = next_sprite_id;
-    if (queue_enqueue(&item_queue, item))
+    if (queue_enqueue(queue, item))
     {
         // Set up sprite with unique sprite ID
-        set_sprite_tile(next_sprite_id, TILE_ITEM);
+        set_sprite_tile(next_sprite_id, queue->item_type == ITEM_TYPE_COG ? TILE_COG : TILE_CHIP);
         move_sprite(next_sprite_id, x + 8, y + 16);
 
         // Move to next sprite (wrap around at 40 sprites)
@@ -277,7 +320,8 @@ void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
 
     // Initialize assembly machine
     assembly_machine.item_capacity = 5;
-    assembly_machine.item_count = 0;
+    assembly_machine.cog_count = 0;
+    assembly_machine.chip_count = 0;
     assembly_machine.x = grid_x * 8;
     assembly_machine.y = grid_y * 8;
 }
@@ -285,15 +329,24 @@ void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
 // Initialize items array
 void init_items(void)
 {
-    queue_init(&item_queue);
+    queue_chips.front = 0;
+    queue_chips.back = 0;
+    queue_chips.size = 0;
+    queue_chips.item_type = ITEM_TYPE_CHIP;
+
+    queue_cogs.front = 0;
+    queue_cogs.back = 0;
+    queue_cogs.size = 0;
+    queue_cogs.item_type = ITEM_TYPE_COG;
+
     next_sprite_id = 0;
 }
 
 // Delete the oldest item from the queue
-void delete_oldest_item(void)
+void delete_oldest_item(ItemQueue *queue)
 {
     Item item;
-    if (queue_dequeue(&item_queue, &item))
+    if (queue_dequeue(queue, &item))
     {
         // Hide the sprite by moving it off screen
         move_sprite(item.sprite_id, 0, 0);
@@ -314,24 +367,35 @@ uint8_t is_on_screen(uint8_t x, uint8_t y)
 }
 
 // Update all items' positions
-void update_items(void)
+void update_items(ItemQueue *queue)
 {
-    // Check if oldest item touches assembly machine
+    // TODO: Consistent terminology use "assembler" over "assembly machine"
+    // TODO: The first item should really be moved before checking for assembler touch
+    // Check if oldest item touches assembler
     Item oldest_item;
-    if (queue_peek(&item_queue, &oldest_item) && assembly_machine.item_count < assembly_machine.item_capacity)
+    uint8_t item_count = queue->item_type == ITEM_TYPE_COG ? assembly_machine.cog_count : assembly_machine.chip_count;
+    if (queue_peek(queue, &oldest_item) && item_count < assembly_machine.item_capacity)
     {
         if (aabb_overlap(oldest_item.x, oldest_item.y, 8, 8, assembly_machine.x, assembly_machine.y, 16, 16))
         {
-            delete_oldest_item();
-            assembly_machine.item_count++;
+            delete_oldest_item(queue);
+            // Determine which counter to increment based on which queue this is
+            if (queue == &queue_cogs)
+            {
+                assembly_machine.cog_count++;
+            }
+            else if (queue == &queue_chips)
+            {
+                assembly_machine.chip_count++;
+            }
         }
     }
 
     // Process items in order (oldest first)
-    for (uint8_t i = 0; i < item_queue.size; i++)
+    for (uint8_t i = 0; i < queue->size; i++)
     {
         Item item;
-        uint8_t success = queue_get_at(&item_queue, i, &item);
+        uint8_t success = queue_get_at(queue, i, &item);
         ASSERT(success, "Failed to get item from queue");
 
         // Check if item is on belt
@@ -376,7 +440,7 @@ void update_items(void)
 
         // Check if moving would keep item on screen and not collide with other items
         Item collision_candidate;
-        uint8_t has_collision_candidate = queue_get_at(&item_queue, i - 1, &collision_candidate);
+        uint8_t has_collision_candidate = queue_get_at(queue, i - 1, &collision_candidate);
         uint8_t would_collide = has_collision_candidate &&
                                 boxes_overap_8x8(collision_candidate.x, collision_candidate.y, new_x, new_y);
         uint8_t on_screen = is_on_screen(new_pixel_x, new_pixel_y);
@@ -391,7 +455,21 @@ void update_items(void)
             item.y = new_y;
 
             // Store the updated item back to the queue
-            queue_set_at(&item_queue, i, item);
+            queue_set_at(queue, i, item);
+        }
+    }
+}
+
+void update_spawner(ItemSpawner *spawner)
+{
+    spawner->counter++;
+    if (spawner->counter >= spawner->frequency)
+    {
+        spawner->counter = 0;
+        // Only spawn if queue is not at limit
+        if (!queue_is_full(spawner->queue))
+        {
+            create_item(spawner->x, spawner->y, spawner->queue);
         }
     }
 }
@@ -421,10 +499,11 @@ void init_factory(void)
     {
         place_belt(x, 6, BELT_LEFT); // Left belts
     }
-    // for (uint8_t y = 6; y > 2; y--)
-    // {
-    //     place_belt(2, y, BELT_UP); // Up belts
-    // }
+
+    place_belt(1, 10, BELT_UP);
+    place_belt(1, 9, BELT_UP);
+    place_belt(1, 8, BELT_UP);
+    place_belt(1, 7, BELT_UP);
 
     // place assembly machine
     create_assembly_machine(1, 5);
@@ -453,19 +532,17 @@ void main(void)
         uint8_t a_pressed = (buttons & J_A) && !(prev_buttons & J_A);
         if (a_pressed)
         {
-            delete_oldest_item();
+            delete_oldest_item(&queue_chips);
         }
         prev_buttons = buttons;
 
-        // Update frame counter and spawn items
-        frame_counter = (frame_counter + 1) % 32;
-        if (frame_counter == 0 && !queue_is_full(&item_queue))
-        {
-            // Spawn new item at the start of the conveyor loop
-            create_item(16, 16);
-        }
+        // Move existing items
+        update_items(&queue_chips);
+        update_items(&queue_cogs);
 
-        update_items();
+        // Spawn new items
+        update_spawner(&spawner_chip);
+        update_spawner(&spawner_cog);
 
         // Done processing, yield CPU and wait for start of next frame
         vsync();
