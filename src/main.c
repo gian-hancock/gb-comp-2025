@@ -6,12 +6,12 @@
 #include "../res/empty_factory.h"
 #include "../res/tiles.h"
 #include "util.h"
-
-// Item tile index (3rd tile in our tileset, so index 2)
-#define ITEM_TILE 130 // Single tile for item sprite (2 + 128)
+#include "tiles.h"
 
 // Maximum number of items that can exist at once
-#define MAX_ITEMS 10
+#define MAX_ITEMS 4
+#define FACTORY_GRID_WIDTH 16
+#define FACTORY_GRID_HEIGHT 16
 
 // Structure to store item data
 typedef struct
@@ -123,24 +123,13 @@ typedef enum
     BELT_LEFT = 1,
     BELT_DOWN = 2,
     BELT_UP = 3,
-    NO_BELT = 4 // Special value to indicate no belt
-} BeltDirection;
-
-// Belt tile indexes
-typedef enum
-{
-    BELT_UP_START = 208,    // Single tile for up-facing belt (80 + 128)
-    BELT_DOWN_START = 209,  // Single tile for down-facing belt (81 + 128)
-    BELT_LEFT_START = 210,  // Single tile for left-facing belt (82 + 128)
-    BELT_RIGHT_START = 211, // Single tile for right-facing belt (83 + 128)
-} BeltTile;
+    EMPTY = 4, // Special value to indicate no belt,
+    ASSEMBLY_MACHINE = 5
+} FactoryTile;
 
 // TODO: is 16x16 the correct size now?
 // Store belt data in RAM (16x16 grid)
-BeltDirection belt_grid[16][16];
-
-// Function prototypes
-uint8_t boxes_overap_8x8(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);
+FactoryTile factory_tiles[FACTORY_GRID_HEIGHT][FACTORY_GRID_WIDTH];
 
 // Initialize belt grid to empty
 void init_belt_grid(void)
@@ -149,45 +138,46 @@ void init_belt_grid(void)
     {
         for (uint8_t x = 0; x < 16; x++)
         {
-            belt_grid[y][x] = NO_BELT;
+            factory_tiles[y][x] = EMPTY;
         }
     }
 }
 
 // Get belt type at position (returns NO_BELT if no belt)
-BeltDirection get_belt_at(uint8_t x, uint8_t y)
+FactoryTile get_factory_tile_at_pixel(uint8_t x, uint8_t y)
 {
     if (x >= 16 || y >= 16)
-        return NO_BELT;
-    return belt_grid[y][x];
+        return EMPTY;
+    return factory_tiles[y][x];
 }
 
-void place_belt(uint8_t x, uint8_t y, BeltDirection direction)
+void place_belt(uint8_t x, uint8_t y, FactoryTile beltTile)
 {
-    if (x >= 16 || y >= 16)
-        return;
+    ASSERT(x >= 0 && x < FACTORY_GRID_WIDTH && y >= 0 && y < FACTORY_GRID_HEIGHT, "place_belt: Out of bounds");
+    ASSERT(beltTile == BELT_RIGHT || beltTile == BELT_LEFT || beltTile == BELT_DOWN || beltTile == BELT_UP,
+           "place_belt: Invalid tile");
 
-    BeltTile base_tile;
-    switch (direction)
+    uint8_t base_tile;
+    switch (beltTile)
     {
     case BELT_RIGHT:
-        base_tile = BELT_RIGHT_START;
+        base_tile = TILE_BELT_RIGHT;
         break;
     case BELT_LEFT:
-        base_tile = BELT_LEFT_START;
+        base_tile = TILE_BELT_LEFT;
         break;
     case BELT_DOWN:
-        base_tile = BELT_DOWN_START;
+        base_tile = TILE_BELT_DOWN;
         break;
     case BELT_UP:
-        base_tile = BELT_UP_START;
+        base_tile = TILE_BELT_UP;
         break;
     default:
         return;
     }
 
     // Store in RAM
-    belt_grid[y][x] = direction;
+    factory_tiles[y][x] = beltTile;
 
     // Update VRAM
     uint8_t gb_x = x;
@@ -232,6 +222,7 @@ void create_item(uint8_t x, uint8_t y)
         return;
     }
 
+    // TODO: (Optimisation) Only check last item in queue
     // Check if the position would collide with any existing item
     if (would_collide_at_position(x, y))
     {
@@ -247,7 +238,7 @@ void create_item(uint8_t x, uint8_t y)
     if (queue_enqueue(&item_queue, item))
     {
         // Set up sprite with unique sprite ID
-        set_sprite_tile(next_sprite_id, ITEM_TILE);
+        set_sprite_tile(next_sprite_id, TILE_ITEM);
         move_sprite(next_sprite_id, x + 8, y + 16);
 
         // Move to next sprite (wrap around at 40 sprites)
@@ -256,6 +247,21 @@ void create_item(uint8_t x, uint8_t y)
 
         BGB_printf("Created item at: (%d, %d) with sprite %d", x, y, item.sprite_id);
     }
+}
+
+void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
+{
+    ASSERT(grid_x >= 0 && grid_x < FACTORY_GRID_WIDTH && grid_y >= 0 && grid_y < FACTORY_GRID_HEIGHT,
+           "Assembly machine out of bounds");
+
+    // Add assembly machine to the grid
+    factory_tiles[grid_y][grid_x] = ASSEMBLY_MACHINE;
+    factory_tiles[grid_y + 1][grid_x] = ASSEMBLY_MACHINE;
+    factory_tiles[grid_y][grid_x + 1] = ASSEMBLY_MACHINE;
+    factory_tiles[grid_y + 1][grid_x + 1] = ASSEMBLY_MACHINE;
+
+    // Set background tiles
+    set_bkg_tiles_2x2(grid_x, grid_y, TILE_ASSEMBLY_MACHINE);
 }
 
 // Initialize items array
@@ -289,39 +295,6 @@ uint8_t is_on_screen(uint8_t x, uint8_t y)
     return (x < 152 && y < 136); // 160-8 = 152, 144-8 = 136
 }
 
-// Check if two 8x8 boxes overlap
-uint8_t boxes_overap_8x8(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
-{
-    return !(x1 + 8 <= x2 || x2 + 8 <= x1 || y1 + 8 <= y2 || y2 + 8 <= y1);
-}
-
-// Check if moving an item would collide with any other item
-uint8_t would_collide_with_any_item(uint8_t item_index, uint8_t new_x, uint8_t new_y)
-{
-    // Convert to pixel coordinates
-    uint8_t pixel_x = new_x + 8;
-    uint8_t pixel_y = new_y + 16;
-
-    // Check collision with every other item
-    for (uint8_t i = 0; i < item_queue.size; i++)
-    {
-        Item item;
-        if (queue_get_at(&item_queue, i, &item))
-        {
-            if (i != item_index)
-            { // Don't check collision with self
-                uint8_t other_x = item.x + 8;
-                uint8_t other_y = item.y + 16;
-                if (boxes_overap_8x8(pixel_x, pixel_y, other_x, other_y))
-                {
-                    return 1; // Collision detected
-                }
-            }
-        }
-    }
-    return 0; // No collision
-}
-
 // Update all items' positions
 void update_items(void)
 {
@@ -333,8 +306,8 @@ void update_items(void)
         ASSERT(success, "Failed to get item from queue");
 
         // Check if item is on belt
-        BeltDirection belt_dir = get_belt_at((item.x + 4) / 8, (item.y + 4) / 8); // TODO: Use constants for 4 and 8
-        if (belt_dir == NO_BELT)
+        FactoryTile belt_dir = get_factory_tile_at_pixel((item.x + 4) / 8, (item.y + 4) / 8); // TODO: Use constants for 4 and 8
+        if (belt_dir == EMPTY)
         {
             continue; // Item is not on belt, so don't move it
         }
@@ -423,6 +396,9 @@ void init_gfx(void)
     // {
     //     place_belt(2, y, BELT_UP); // Up belts
     // }
+
+    // place assembly machine
+    create_assembly_machine(1, 5);
 
     // Turn the background map on to make it visible
     SHOW_BKG;
