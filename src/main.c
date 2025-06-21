@@ -1,3 +1,5 @@
+// TODO: #include <stdbool.h> and use bool rather than uint8_t for booleans
+
 #include <gb/gb.h>
 #include <gb/bgb_emu.h>
 #include <stdint.h>
@@ -9,7 +11,7 @@
 #define ITEM_TILE 130 // Single tile for item sprite (2 + 128)
 
 // Maximum number of items that can exist at once
-#define MAX_ITEMS 4
+#define MAX_ITEMS 10
 
 // Structure to store item data
 typedef struct
@@ -19,6 +21,7 @@ typedef struct
     uint8_t sprite_id; // Track which sprite this item uses
 } Item;
 
+// TODO: Consider moving ItemQueue to another file
 // Ring buffer queue for items
 typedef struct
 {
@@ -137,7 +140,7 @@ typedef enum
 BeltDirection belt_grid[16][16];
 
 // Function prototypes
-uint8_t boxes_overlap(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);
+uint8_t boxes_overap_8x8(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);
 
 // Initialize belt grid to empty
 void init_belt_grid(void)
@@ -209,7 +212,7 @@ uint8_t would_collide_at_position(uint8_t x, uint8_t y)
         {
             uint8_t other_x = item.x + 8;
             uint8_t other_y = item.y + 16;
-            if (boxes_overlap(pixel_x, pixel_y, other_x, other_y))
+            if (boxes_overap_8x8(pixel_x, pixel_y, other_x, other_y))
             {
                 return 1; // Collision detected
             }
@@ -287,9 +290,8 @@ uint8_t is_on_screen(uint8_t x, uint8_t y)
 }
 
 // Check if two 8x8 boxes overlap
-uint8_t boxes_overlap(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
+uint8_t boxes_overap_8x8(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
 {
-    // Check if boxes overlap by seeing if one box is completely to the left, right, above, or below the other
     return !(x1 + 8 <= x2 || x2 + 8 <= x1 || y1 + 8 <= y2 || y2 + 8 <= y1);
 }
 
@@ -300,7 +302,6 @@ uint8_t would_collide_with_any_item(uint8_t item_index, uint8_t new_x, uint8_t n
     uint8_t pixel_x = new_x + 8;
     uint8_t pixel_y = new_y + 16;
 
-    // TODO: Can maybe only check for collision with next item due to fifo constraints?
     // Check collision with every other item
     for (uint8_t i = 0; i < item_queue.size; i++)
     {
@@ -311,7 +312,7 @@ uint8_t would_collide_with_any_item(uint8_t item_index, uint8_t new_x, uint8_t n
             { // Don't check collision with self
                 uint8_t other_x = item.x + 8;
                 uint8_t other_y = item.y + 16;
-                if (boxes_overlap(pixel_x, pixel_y, other_x, other_y))
+                if (boxes_overap_8x8(pixel_x, pixel_y, other_x, other_y))
                 {
                     return 1; // Collision detected
                 }
@@ -328,63 +329,67 @@ void update_items(void)
     for (uint8_t i = 0; i < item_queue.size; i++)
     {
         Item item;
-        if (queue_get_at(&item_queue, i, &item))
+        uint8_t success = queue_get_at(&item_queue, i, &item);
+        ASSERT(success, "Failed to get item from queue");
+
+        // Check if item is on belt
+        BeltDirection belt_dir = get_belt_at((item.x + 4) / 8, (item.y + 4) / 8); // TODO: Use constants for 4 and 8
+        if (belt_dir == NO_BELT)
         {
-            // Check if item is on belt
-            BeltDirection belt_dir = get_belt_at((item.x + 4) / 8, (item.y + 4) / 8); // TODO: Use constants for 4 and 8
-            if (belt_dir == NO_BELT)
-            {
-                // Item is not on belt, so don't move it
-                continue;
-            }
+            continue; // Item is not on belt, so don't move it
+        }
 
-            // Convert from tile to pixel coordinates
-            // TODO: explain magic 8 & 16
-            uint8_t pixel_x = item.x + 8;
-            uint8_t pixel_y = item.y + 16;
+        // Convert from tile to pixel coordinates
+        // TODO: explain magic 8 & 16
+        uint8_t pixel_x = item.x + 8;
+        uint8_t pixel_y = item.y + 16;
 
-            // Calculate new position based on belt direction
-            uint8_t new_x = item.x;
-            uint8_t new_y = item.y;
-            uint8_t new_pixel_x = pixel_x;
-            uint8_t new_pixel_y = pixel_y;
+        // Calculate new position based on belt direction
+        uint8_t new_x = item.x;
+        uint8_t new_y = item.y;
+        uint8_t new_pixel_x = pixel_x;
+        uint8_t new_pixel_y = pixel_y;
 
-            switch (belt_dir)
-            {
-            case BELT_RIGHT:
-                new_x = item.x + 1;
-                new_pixel_x = pixel_x + 1;
-                break;
-            case BELT_LEFT:
-                new_x = item.x - 1;
-                new_pixel_x = pixel_x - 1;
-                break;
-            case BELT_DOWN:
-                new_y = item.y + 1;
-                new_pixel_y = pixel_y + 1;
-                break;
-            case BELT_UP:
-                new_y = item.y - 1;
-                new_pixel_y = pixel_y - 1;
-                break;
-            default:
-                continue; // Should not happen since we already checked for NO_BELT
-            }
+        switch (belt_dir)
+        {
+        case BELT_RIGHT:
+            new_x = item.x + 1;
+            new_pixel_x = pixel_x + 1;
+            break;
+        case BELT_LEFT:
+            new_x = item.x - 1;
+            new_pixel_x = pixel_x - 1;
+            break;
+        case BELT_DOWN:
+            new_y = item.y + 1;
+            new_pixel_y = pixel_y + 1;
+            break;
+        case BELT_UP:
+            new_y = item.y - 1;
+            new_pixel_y = pixel_y - 1;
+            break;
+        default:
+            continue; // Should not happen since we already checked for NO_BELT
+        }
 
-            // Check if moving would keep item on screen and not collide with other items
-            if (is_on_screen(new_pixel_x, new_pixel_y) &&
-                !would_collide_with_any_item(i, new_x, new_y))
-            {
-                // Move sprite using this item's unique sprite
-                move_sprite(item.sprite_id, new_pixel_x, new_pixel_y);
+        // Check if moving would keep item on screen and not collide with other items
+        Item collision_candidate;
+        uint8_t has_collision_candidate = queue_get_at(&item_queue, i - 1, &collision_candidate);
+        uint8_t would_collide = has_collision_candidate &&
+                                boxes_overap_8x8(collision_candidate.x, collision_candidate.y, new_x, new_y);
+        uint8_t on_screen = is_on_screen(new_pixel_x, new_pixel_y);
+        if (on_screen && !would_collide)
+        {
+            // TODO: Consider using index in underlying queue buffer as sprite_id?
+            // Move sprite using this item's unique sprite
+            move_sprite(item.sprite_id, new_pixel_x, new_pixel_y);
 
-                // Update stored position (in tile coordinates)
-                item.x = new_x;
-                item.y = new_y;
+            // Update stored position (in tile coordinates)
+            item.x = new_x;
+            item.y = new_y;
 
-                // Store the updated item back to the queue
-                queue_set_at(&item_queue, i, item);
-            }
+            // Store the updated item back to the queue
+            queue_set_at(&item_queue, i, item);
         }
     }
 }
@@ -461,7 +466,3 @@ void main(void)
         vsync();
     }
 }
-
-/*
-
-*/
