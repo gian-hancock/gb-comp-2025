@@ -18,3 +18,8 @@ void set_bkg_tiles_2x2(uint8_t x, uint8_t y, uint8_t base_tile)
     // Set the 2x2 tile area
     set_bkg_tiles(x, y, 2, 2, tiles);
 }
+
+uint8_t aabb_overlap(uint8_t x1, uint8_t y1, uint8_t w1, uint8_t h1, uint8_t x2, uint8_t y2, uint8_t w2, uint8_t h2)
+{
+    return !(x1 + w1 <= x2 || x2 + w2 <= x1 || y1 + h1 <= y2 || y2 + h2 <= y1);
+}

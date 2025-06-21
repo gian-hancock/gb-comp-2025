@@ -16,6 +16,7 @@
 // Structure to store item data
 typedef struct
 {
+    // Coords of top left corner. (0, 0) represents the top left of the screen.
     uint8_t x;
     uint8_t y;
     uint8_t sprite_id; // Track which sprite this item uses
@@ -31,9 +32,20 @@ typedef struct
     uint8_t size;  // Number of items in the queue
 } ItemQueue;
 
-// Global queue instance
+typedef struct
+{
+    uint8_t item_capacity;
+    uint8_t item_count;
+    // Coords of top left corner (in pixels). (0, 0) represents the top left of the screen.
+    uint8_t x;
+    uint8_t y;
+} AssemblyMachine;
+
+// State
 ItemQueue item_queue;
+// TODO: Use index in underlying queue buffer as sprite_id?
 uint8_t next_sprite_id = 0; // Track next available sprite
+AssemblyMachine assembly_machine;
 
 // Queue operations
 void queue_init(ItemQueue *queue)
@@ -262,6 +274,12 @@ void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
 
     // Set background tiles
     set_bkg_tiles_2x2(grid_x, grid_y, TILE_ASSEMBLY_MACHINE);
+
+    // Initialize assembly machine
+    assembly_machine.item_capacity = 5;
+    assembly_machine.item_count = 0;
+    assembly_machine.x = grid_x * 8;
+    assembly_machine.y = grid_y * 8;
 }
 
 // Initialize items array
@@ -298,6 +316,17 @@ uint8_t is_on_screen(uint8_t x, uint8_t y)
 // Update all items' positions
 void update_items(void)
 {
+    // Check if oldest item touches assembly machine
+    Item oldest_item;
+    if (queue_peek(&item_queue, &oldest_item) && assembly_machine.item_count < assembly_machine.item_capacity)
+    {
+        if (aabb_overlap(oldest_item.x, oldest_item.y, 8, 8, assembly_machine.x, assembly_machine.y, 16, 16))
+        {
+            delete_oldest_item();
+            assembly_machine.item_count++;
+        }
+    }
+
     // Process items in order (oldest first)
     for (uint8_t i = 0; i < item_queue.size; i++)
     {
@@ -367,7 +396,7 @@ void update_items(void)
     }
 }
 
-void init_gfx(void)
+void init_factory(void)
 {
     // Load Background tiles and then map
     // TODO: Loading 128, but not actually using that many
@@ -411,7 +440,7 @@ void main(void)
 #ifdef BGB_DEBUG
     BGB_printf("BGB_DEBUG: %d", BGB_DEBUG);
 #endif
-    init_gfx();
+    init_factory();
 
     uint8_t frame_counter = 0; // Count frames for item spawning
     uint8_t prev_buttons = 0;  // Track previous button state
@@ -430,7 +459,7 @@ void main(void)
 
         // Update frame counter and spawn items
         frame_counter = (frame_counter + 1) % 32;
-        if (frame_counter == 0)
+        if (frame_counter == 0 && !queue_is_full(&item_queue))
         {
             // Spawn new item at the start of the conveyor loop
             create_item(16, 16);
