@@ -2,8 +2,9 @@
 #define TILES_H
 
 // Item
-#define TILE_CHIP 130 // Single tile for item sprite (2 + 128)
-#define TILE_COG 131  // Single tile for item sprite (3 + 128)
+#define TILE_MOTOR 129 // Single tile for item sprite (1 + 128)
+#define TILE_CHIP 130  // Single tile for item sprite (2 + 128)
+#define TILE_COG 131   // Single tile for item sprite (3 + 128)
 
 // Belt
 #define TILE_BELT_UP 208    // Single tile for up-facing belt (80 + 128)

@@ -33,10 +33,18 @@ typedef struct
 // Fixed-size vector queue for items
 typedef struct
 {
-    Item buffer[MAX_ITEMS];
-    uint8_t size; // Number of items in the queue
+    Item *buffer;
+    uint8_t size;           // Number of items in the queue
+    uint8_t capacity;       // Maximum number of items the queue can hold
+    uint8_t base_sprite_id; // Base sprite ID for items in this queue
+    uint8_t next_sprite_id; // Next available sprite ID
     ItemType item_type;
 } ItemQueue;
+
+// Static buffers for item queues
+static Item chips_buffer[MAX_ITEMS];
+static Item cogs_buffer[MAX_ITEMS];
+static Item motors_buffer[MAX_ITEMS];
 
 typedef struct
 {
@@ -60,12 +68,10 @@ typedef struct
 } ItemSpawner;
 
 // State
-ItemQueue queue_chips;
-ItemQueue queue_cogs;
-ItemQueue queue_motors;
+ItemQueue queue_chips = {.buffer = chips_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = 0, .next_sprite_id = 0, .item_type = ITEM_TYPE_CHIP};
+ItemQueue queue_cogs = {.buffer = cogs_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = MAX_ITEMS, .next_sprite_id = MAX_ITEMS, .item_type = ITEM_TYPE_COG};
+ItemQueue queue_motors = {.buffer = motors_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = MAX_ITEMS * 2, .next_sprite_id = MAX_ITEMS * 2, .item_type = ITEM_TYPE_MOTOR};
 
-// TODO: Use index in underlying queue buffer as sprite_id?
-uint8_t next_sprite_id = 0; // Track next available sprite
 AssemblyMachine assembly_machine;
 ItemSpawner spawner_cog = {
     .counter = 0,
@@ -89,17 +95,26 @@ uint8_t queue_is_empty(ItemQueue *queue)
 
 uint8_t queue_is_full(ItemQueue *queue)
 {
-    return queue->size == MAX_ITEMS;
+    return queue->size == queue->capacity;
 }
 
-uint8_t queue_enqueue(ItemQueue *queue, Item item)
+uint8_t queue_enqueue(ItemQueue *queue, Item *item)
 {
     if (queue_is_full(queue))
     {
         return 0; // Queue is full
     }
 
-    queue->buffer[queue->size] = item;
+    // Assign sprite ID to the item
+    BGB_printf("queue_enqueue: Assigning sprite ID %d to item", queue->next_sprite_id);
+    item->sprite_id = queue->next_sprite_id;
+    queue->next_sprite_id++;
+    if (queue->next_sprite_id >= queue->base_sprite_id + queue->capacity)
+    {
+        queue->next_sprite_id = queue->base_sprite_id;
+    }
+
+    queue->buffer[queue->size] = *item;
     queue->size++;
     return 1; // Success
 }
@@ -273,11 +288,9 @@ uint8_t would_collide_at_position(uint8_t x, uint8_t y)
 // Create a sprite item at game tile coordinates (x,y)
 void create_item(uint8_t x, uint8_t y, ItemQueue *queue)
 {
-    BGB_printf("create_item(%d, %d)", x, y);
     if (queue_is_full(queue))
     {
         ASSERT(0, "Queue is full in create_item");
-        BGB_printf("Failed to create item - max items reached");
         return;
     }
 
@@ -293,18 +306,30 @@ void create_item(uint8_t x, uint8_t y, ItemQueue *queue)
     Item item;
     item.x = x;
     item.y = y;
-    item.sprite_id = next_sprite_id;
-    if (queue_enqueue(queue, item))
+    if (queue_enqueue(queue, &item))
     {
         // Set up sprite with unique sprite ID
-        set_sprite_tile(next_sprite_id, queue->item_type == ITEM_TYPE_COG ? TILE_COG : TILE_CHIP);
-        move_sprite(next_sprite_id, x + 8, y + 16);
-
-        // Move to next sprite (wrap around at 40 sprites)
-        // TODO: How to handle when we have multiple different types of items?
-        next_sprite_id = (next_sprite_id + 1) % 40;
-
-        BGB_printf("Created item at: (%d, %d) with sprite %d", x, y, item.sprite_id);
+        uint8_t tile;
+        switch (queue->item_type)
+        {
+        case ITEM_TYPE_COG:
+            tile = TILE_COG;
+            break;
+        case ITEM_TYPE_CHIP:
+            tile = TILE_CHIP;
+            break;
+        case ITEM_TYPE_MOTOR:
+            tile = TILE_MOTOR;
+            break;
+        default:
+            ASSERT(0, "Invalid item type");
+        }
+        set_sprite_tile(item.sprite_id, tile);
+        move_sprite(item.sprite_id, x + 8, y + 16);
+        BGB_printf("SPRITE_CREATE: Set up sprite %d with tile %d at position (%d, %d)",
+                   item.sprite_id,
+                   queue->item_type == ITEM_TYPE_COG ? TILE_COG : TILE_CHIP,
+                   x + 8, y + 16);
     }
 }
 
@@ -330,34 +355,19 @@ void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
     assembly_machine.y = grid_y * 8;
 }
 
-// Initialize items array
-void init_items(void)
-{
-    queue_chips.size = 0;
-    queue_chips.item_type = ITEM_TYPE_CHIP;
-
-    queue_cogs.size = 0;
-    queue_cogs.item_type = ITEM_TYPE_COG;
-
-    queue_motors.size = 0;
-    queue_motors.item_type = ITEM_TYPE_MOTOR;
-
-    next_sprite_id = 0;
-}
-
 // Delete the oldest item from the queue
 void delete_oldest_item(ItemQueue *queue)
 {
     Item item;
     if (queue_dequeue(queue, &item))
     {
+        BGB_printf("SPRITE_REMOVE: Removing sprite %d from position (%d, %d)", item.sprite_id, item.x, item.y);
         // Hide the sprite by moving it off screen
         move_sprite(item.sprite_id, 0, 0);
-        BGB_printf("Deleted oldest item at: (%d, %d) with sprite %d", item.x, item.y, item.sprite_id);
     }
     else
     {
-        BGB_printf("No items to delete");
+        ASSERT(0, "No items to delete");
     }
 }
 
@@ -523,7 +533,6 @@ void init_factory(void)
 
     // Initialize belt grid and items
     init_belt_grid();
-    init_items();
 
     // Place some example belts
     // Create a simple loop
