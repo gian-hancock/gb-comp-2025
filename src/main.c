@@ -30,13 +30,11 @@ typedef struct
 } Item;
 
 // TODO: Consider moving ItemQueue to another file
-// Ring buffer queue for items
+// Fixed-size vector queue for items
 typedef struct
 {
     Item buffer[MAX_ITEMS];
-    uint8_t front; // Index of the front (oldest) item
-    uint8_t back;  // Index of the back (newest) item
-    uint8_t size;  // Number of items in the queue
+    uint8_t size; // Number of items in the queue
     ItemType item_type;
 } ItemQueue;
 
@@ -101,8 +99,7 @@ uint8_t queue_enqueue(ItemQueue *queue, Item item)
         return 0; // Queue is full
     }
 
-    queue->buffer[queue->back] = item;
-    queue->back = (queue->back + 1) % MAX_ITEMS;
+    queue->buffer[queue->size] = item;
     queue->size++;
     return 1; // Success
 }
@@ -114,8 +111,14 @@ uint8_t queue_dequeue(ItemQueue *queue, Item *item)
         return 0; // Queue is empty
     }
 
-    *item = queue->buffer[queue->front];
-    queue->front = (queue->front + 1) % MAX_ITEMS;
+    *item = queue->buffer[0]; // Get the front (oldest) item
+
+    // Shift all remaining elements to the left to fill the gap
+    for (uint8_t i = 0; i < queue->size - 1; i++)
+    {
+        queue->buffer[i] = queue->buffer[i + 1];
+    }
+
     queue->size--;
     return 1; // Success
 }
@@ -127,8 +130,8 @@ uint8_t queue_peek(ItemQueue *queue, Item *item)
         return 0; // Queue is empty
     }
 
-    *item = queue->buffer[queue->front];
-    return 1; // Success
+    *item = queue->buffer[0]; // Get the front (oldest) item
+    return 1;                 // Success
 }
 
 // Get item at specific index in queue (0 = oldest, size-1 = newest)
@@ -139,8 +142,7 @@ uint8_t queue_get_at(ItemQueue *queue, uint8_t index, Item *item)
         return 0; // Index out of bounds
     }
 
-    uint8_t actual_index = (queue->front + index) % MAX_ITEMS;
-    *item = queue->buffer[actual_index];
+    *item = queue->buffer[index];
     return 1; // Success
 }
 
@@ -152,8 +154,7 @@ uint8_t queue_set_at(ItemQueue *queue, uint8_t index, Item item)
         return 0; // Index out of bounds
     }
 
-    uint8_t actual_index = (queue->front + index) % MAX_ITEMS;
-    queue->buffer[actual_index] = item;
+    queue->buffer[index] = item;
     return 1; // Success
 }
 
@@ -332,18 +333,12 @@ void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
 // Initialize items array
 void init_items(void)
 {
-    queue_chips.front = 0;
-    queue_chips.back = 0;
     queue_chips.size = 0;
     queue_chips.item_type = ITEM_TYPE_CHIP;
 
-    queue_cogs.front = 0;
-    queue_cogs.back = 0;
     queue_cogs.size = 0;
     queue_cogs.item_type = ITEM_TYPE_COG;
 
-    queue_motors.front = 0;
-    queue_motors.back = 0;
     queue_motors.size = 0;
     queue_motors.item_type = ITEM_TYPE_MOTOR;
 
@@ -496,8 +491,8 @@ void update_assembly_machine(AssemblyMachine *assembly_machine)
             if (queue_motors.size > 0)
             {
                 Item last_motor;
-                // Get the last item in the queue (at back-1)
-                uint8_t last_index = (queue_motors.back - 1 + MAX_ITEMS) % MAX_ITEMS;
+                // Get the last item in the queue (at size-1)
+                uint8_t last_index = queue_motors.size - 1;
                 last_motor = queue_motors.buffer[last_index];
 
                 // Convert to pixel coordinates for collision check
