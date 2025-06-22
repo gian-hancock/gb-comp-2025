@@ -17,6 +17,7 @@ typedef enum
 {
     ITEM_TYPE_COG,
     ITEM_TYPE_CHIP,
+    ITEM_TYPE_MOTOR,
 } ItemType;
 
 // Structure to store item data
@@ -63,6 +64,8 @@ typedef struct
 // State
 ItemQueue queue_chips;
 ItemQueue queue_cogs;
+ItemQueue queue_motors;
+
 // TODO: Use index in underlying queue buffer as sprite_id?
 uint8_t next_sprite_id = 0; // Track next available sprite
 AssemblyMachine assembly_machine;
@@ -339,6 +342,11 @@ void init_items(void)
     queue_cogs.size = 0;
     queue_cogs.item_type = ITEM_TYPE_COG;
 
+    queue_motors.front = 0;
+    queue_motors.back = 0;
+    queue_motors.size = 0;
+    queue_motors.item_type = ITEM_TYPE_MOTOR;
+
     next_sprite_id = 0;
 }
 
@@ -474,6 +482,43 @@ void update_spawner(ItemSpawner *spawner)
     }
 }
 
+void update_assembly_machine(AssemblyMachine *assembly_machine)
+{
+    // Check if there's space to spawn a motor at the assemblers spawn point.
+    if (assembly_machine->cog_count == assembly_machine->item_capacity &&
+        assembly_machine->chip_count == assembly_machine->item_capacity)
+    {
+        // Check if motors queue is not full
+        if (!queue_is_full(&queue_motors))
+        {
+            // Check for collision only with the last motor in the queue
+            uint8_t would_collide = 0;
+            if (queue_motors.size > 0)
+            {
+                Item last_motor;
+                // Get the last item in the queue (at back-1)
+                uint8_t last_index = (queue_motors.back - 1 + MAX_ITEMS) % MAX_ITEMS;
+                last_motor = queue_motors.buffer[last_index];
+
+                // Convert to pixel coordinates for collision check
+                uint8_t spawn_pixel_x = assembly_machine->x;
+                uint8_t spawn_pixel_y = assembly_machine->y;
+                uint8_t motor_pixel_x = last_motor.x;
+                uint8_t motor_pixel_y = last_motor.y;
+
+                would_collide = boxes_overap_8x8(spawn_pixel_x, spawn_pixel_y, motor_pixel_x, motor_pixel_y);
+            }
+
+            if (!would_collide)
+            {
+                create_item(assembly_machine->x + 8, assembly_machine->y + 16, &queue_motors);
+                assembly_machine->cog_count = 0;
+                assembly_machine->chip_count = 0;
+            }
+        }
+    }
+}
+
 void init_factory(void)
 {
     // Load Background tiles and then map
@@ -505,6 +550,13 @@ void init_factory(void)
     place_belt(1, 8, BELT_UP);
     place_belt(1, 7, BELT_UP);
 
+    place_belt(2, 12, BELT_DOWN);
+    place_belt(2, 11, BELT_DOWN);
+    place_belt(2, 10, BELT_DOWN);
+    place_belt(2, 9, BELT_DOWN);
+    place_belt(2, 8, BELT_DOWN);
+    place_belt(2, 7, BELT_DOWN);
+
     // place assembly machine
     create_assembly_machine(1, 5);
 
@@ -527,6 +579,10 @@ void main(void)
     // Loop forever
     while (1)
     {
+        // TODO: Game loop
+        // 1. Move/Consume. Move items, they can be moved into an assembler if there's room
+        // 2. Spawn. Spawners and assemblers spawn if there's room
+
         // Handle input
         uint8_t buttons = joypad();
         uint8_t a_pressed = (buttons & J_A) && !(prev_buttons & J_A);
@@ -539,10 +595,12 @@ void main(void)
         // Move existing items
         update_items(&queue_chips);
         update_items(&queue_cogs);
+        update_items(&queue_motors);
 
         // Spawn new items
         update_spawner(&spawner_chip);
         update_spawner(&spawner_cog);
+        update_assembly_machine(&assembly_machine);
 
         // Done processing, yield CPU and wait for start of next frame
         vsync();
