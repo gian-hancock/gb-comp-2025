@@ -15,9 +15,8 @@ done
 
 unset LCCFLAGS
 
-# FIXME:
-# Set GBDK_HOME environment variable
-export GBDK_HOME="/c/gbdk/"
+# GBDK is now included locally in gbdk/ directory
+# No need to set GBDK_HOME - Makefile handles it
 
 # Set debug flag if requested
 if [ "$DEBUG" = true ]; then
@@ -30,9 +29,13 @@ fi
 
 echo "Build successful!"
 
+# Convert WSL path to Windows path for BGB
+WIN_ROM_PATH=$(wslpath -w "$(pwd)/obj/Example.gb")
+
 # Kill any existing BGB process
 echo "Closing any existing BGB windows..."
-taskkill //F //IM bgb.exe 2>/dev/null || true
+cmd.exe /c "taskkill /F /IM bgb.exe" 2>/dev/null || true
 
-echo "Launching BGB..."
-"/c/Program Files/bgb/bgb.exe" "obj/Example.gb" & 
+echo "Launching BGB with ROM: $WIN_ROM_PATH"
+# Use powershell instead of cmd for better UNC path support
+powershell.exe -Command "Start-Process 'C:\Program Files\bgb\bgb.exe' -ArgumentList '$WIN_ROM_PATH'" & 

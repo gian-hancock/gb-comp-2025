@@ -2,9 +2,7 @@ This project was adapted from the DBDK Game Boy [template](https://github.com/gb
 
 # Building
 - Install make.
-- Install GBDK (v4.4.0): https://gbdk.org/docs/api/docs_getting_started.html.
-- Make sure you can compile the examples by running `make` from `gbdk/examples`.
-- Set `GBDK_HOME` environment variable to GBDK install location (required by makefile). e.g. `export GBDK_HOME=/c/gbdk/`
+- GBDK (v4.4.0) is included in this repository under `gbdk/` - no separate installation needed.
 - Run `make` from root directory of this project.
 
 # Editing Tiles and Tilemaps

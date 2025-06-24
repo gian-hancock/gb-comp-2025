@@ -3,14 +3,11 @@
 # subdirectories and places the output in a "obj" subdirectory
 #
 
-# TODO: Move GBDK into this repo?
-# If you move this project you can change the directory 
-# to match your GBDK root directory (ex: GBDK_HOME = "C:/GBDK/"
-# ifndef GBDK_HOME
-# 	GBDK_HOME = ../../../
-# endif
+# GBDK is included in this repository under gbdk/
+# No need to set GBDK_HOME environment variable
+GBDK_HOME = gbdk
 
-LCC = $(GBDK_HOME)bin/lcc 
+LCC = $(GBDK_HOME)/bin/lcc 
 
 ifdef GBDK_DEBUG
 LCCFLAGS += -debug -v -DBGB_DEBUG
