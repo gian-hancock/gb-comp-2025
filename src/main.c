@@ -58,6 +58,14 @@ typedef struct
 
 typedef struct
 {
+    // Coords of top left corner (in pixels). (0, 0) represents the top left of the screen.
+    uint8_t x;
+    uint8_t y;
+    uint8_t motor_count; // How many motors output
+} FactoryOutput;
+
+typedef struct
+{
     uint8_t counter;
     uint8_t frequency;
     ItemQueue *queue;
@@ -73,6 +81,7 @@ ItemQueue queue_cogs = {.buffer = cogs_buffer, .size = 0, .capacity = MAX_ITEMS,
 ItemQueue queue_motors = {.buffer = motors_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = MAX_ITEMS * 2, .next_sprite_id = MAX_ITEMS * 2, .item_type = ITEM_TYPE_MOTOR};
 
 AssemblyMachine assembly_machine;
+FactoryOutput factory_output;
 ItemSpawner spawner_cog = {
     .counter = 0,
     .frequency = 32,
@@ -181,7 +190,8 @@ typedef enum
     BELT_DOWN = 2,
     BELT_UP = 3,
     EMPTY = 4, // Special value to indicate no belt,
-    ASSEMBLY_MACHINE = 5
+    ASSEMBLY_MACHINE = 5,
+    FACTORY_OUTPUT = 6
 } FactoryTile;
 
 // TODO: is 16x16 the correct size now?
@@ -355,6 +365,27 @@ void create_assembly_machine(uint8_t grid_x, uint8_t grid_y)
     assembly_machine.y = grid_y * 8;
 }
 
+void create_factory_output(uint8_t grid_x, uint8_t grid_y)
+{
+    ASSERT(grid_x >= 0 && grid_x < FACTORY_GRID_WIDTH && grid_y >= 0 && grid_y < FACTORY_GRID_HEIGHT,
+           "Factory output out of bounds");
+
+    // Add factory output to the grid
+    factory_tiles[grid_y][grid_x] = FACTORY_OUTPUT;
+    factory_tiles[grid_y + 1][grid_x] = FACTORY_OUTPUT;
+    factory_tiles[grid_y][grid_x + 1] = FACTORY_OUTPUT;
+    factory_tiles[grid_y + 1][grid_x + 1] = FACTORY_OUTPUT;
+
+    // Set background tiles
+    // TODO: currently reuses assembly machine graphics
+    set_bkg_tiles_2x2(grid_x, grid_y, TILE_ASSEMBLY_MACHINE);
+
+    // Initialize factory output
+    factory_output.motor_count = 0;
+    factory_output.x = grid_x * 8;
+    factory_output.y = grid_y * 8;
+}
+
 // Delete the oldest item from the queue
 void delete_oldest_item(ItemQueue *queue)
 {
@@ -524,6 +555,21 @@ void update_assembly_machine(AssemblyMachine *assembly_machine)
     }
 }
 
+void update_factory_output(FactoryOutput *factory_output)
+{
+    // Check if oldest motor touches factory output
+    Item oldest_motor;
+    if (queue_peek(&queue_motors, &oldest_motor))
+    {
+        if (aabb_overlap(oldest_motor.x, oldest_motor.y, 8, 8, factory_output->x, factory_output->y, 16, 16))
+        {
+            delete_oldest_item(&queue_motors);
+            factory_output->motor_count++;
+            BGB_printf("Factory output: Motor consumed! Total: %d", factory_output->motor_count);
+        }
+    }
+}
+
 void init_factory(void)
 {
     // Load Background tiles and then map
@@ -563,6 +609,9 @@ void init_factory(void)
 
     // place assembly machine
     create_assembly_machine(1, 5);
+
+    // place factory output
+    create_factory_output(1, 13);
 
     // Turn the background map on to make it visible
     SHOW_BKG;
@@ -605,6 +654,7 @@ void main(void)
         update_spawner(&spawner_chip);
         update_spawner(&spawner_cog);
         update_assembly_machine(&assembly_machine);
+        update_factory_output(&factory_output);
 
         // Done processing, yield CPU and wait for start of next frame
         vsync();
