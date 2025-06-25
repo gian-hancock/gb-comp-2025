@@ -20,6 +20,27 @@ typedef enum
     ITEM_TYPE_MOTOR,
 } ItemType;
 
+// Belt directions
+typedef enum
+{
+    BELT_RIGHT = 0,
+    BELT_LEFT = 1,
+    BELT_DOWN = 2,
+    BELT_UP = 3,
+    EMPTY = 4, // Special value to indicate no belt,
+    ASSEMBLY_MACHINE = 5,
+    FACTORY_OUTPUT = 6
+} FactoryTile;
+
+// Belt segment structure
+typedef struct
+{
+    uint8_t direction; // BELT_RIGHT, BELT_LEFT, BELT_DOWN, BELT_UP
+    uint8_t end_coord; // End coordinate based on direction
+} BeltSegment;
+
+#define MAX_BELT_SEGMENTS 16
+
 // Structure to store item data
 typedef struct
 {
@@ -27,6 +48,7 @@ typedef struct
     uint8_t x;
     uint8_t y;
     uint8_t sprite_id; // Track which sprite this item uses
+    uint8_t current_belt_segment; // Index of current belt segment
 } Item;
 
 // TODO: Consider moving ItemQueue to another file
@@ -41,6 +63,14 @@ typedef struct
     ItemType item_type;
 } ItemQueue;
 
+// Belt system containing segments and item queue
+typedef struct
+{
+    BeltSegment belt_segments[MAX_BELT_SEGMENTS];
+    uint8_t belt_segment_count;
+    ItemQueue item_queue;
+} BeltSystem;
+
 // Static buffers for item queues
 static Item chips_buffer[MAX_ITEMS];
 static Item cogs_buffer[MAX_ITEMS];
@@ -54,6 +84,7 @@ typedef struct
     // Coords of top left corner (in pixels). (0, 0) represents the top left of the screen.
     uint8_t x;
     uint8_t y;
+    BeltSystem belt_system; // For motor output
 } AssemblyMachine;
 
 typedef struct
@@ -68,31 +99,36 @@ typedef struct
 {
     uint8_t counter;
     uint8_t frequency;
-    ItemQueue *queue;
+    BeltSystem *belt_system;
     ItemType item_type;
     // Coords to place item at.
     uint8_t x;
     uint8_t y;
 } ItemSpawner;
 
-// State
-ItemQueue queue_chips = {.buffer = chips_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = 0, .next_sprite_id = 0, .item_type = ITEM_TYPE_CHIP};
-ItemQueue queue_cogs = {.buffer = cogs_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = MAX_ITEMS, .next_sprite_id = MAX_ITEMS, .item_type = ITEM_TYPE_COG};
-ItemQueue queue_motors = {.buffer = motors_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = MAX_ITEMS * 2, .next_sprite_id = MAX_ITEMS * 2, .item_type = ITEM_TYPE_MOTOR};
+BeltSystem cog_belt_system = {
+    .belt_segment_count = 0,
+    .item_queue = {.buffer = cogs_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = MAX_ITEMS, .next_sprite_id = MAX_ITEMS, .item_type = ITEM_TYPE_COG}
+};
+
+BeltSystem chip_belt_system = {
+    .belt_segment_count = 0,
+    .item_queue = {.buffer = chips_buffer, .size = 0, .capacity = MAX_ITEMS, .base_sprite_id = 0, .next_sprite_id = 0, .item_type = ITEM_TYPE_CHIP}
+};
 
 AssemblyMachine assembly_machine;
 FactoryOutput factory_output;
 ItemSpawner spawner_cog = {
     .counter = 0,
     .frequency = 32,
-    .queue = &queue_cogs, // TODO: Rename to chip_queue
+    .belt_system = &cog_belt_system,
     .item_type = ITEM_TYPE_COG,
     .x = 8,
     .y = 10 * 8};
 ItemSpawner spawner_chip = {
     .counter = 0,
     .frequency = 32,
-    .queue = &queue_chips, // TODO: Rename to chip_queue
+    .belt_system = &chip_belt_system,
     .item_type = ITEM_TYPE_CHIP,
     .x = 16,
     .y = 16};
@@ -182,17 +218,15 @@ uint8_t queue_set_at(ItemQueue *queue, uint8_t index, Item item)
     return 1; // Success
 }
 
-// Belt directions
-typedef enum
+// Add belt segment to belt system
+void add_belt_segment(BeltSystem *belt_system, uint8_t direction, uint8_t end_coord)
 {
-    BELT_RIGHT = 0,
-    BELT_LEFT = 1,
-    BELT_DOWN = 2,
-    BELT_UP = 3,
-    EMPTY = 4, // Special value to indicate no belt,
-    ASSEMBLY_MACHINE = 5,
-    FACTORY_OUTPUT = 6
-} FactoryTile;
+    ASSERT(belt_system->belt_segment_count < MAX_BELT_SEGMENTS, "Too many belt segments");
+    
+    belt_system->belt_segments[belt_system->belt_segment_count].direction = direction;
+    belt_system->belt_segments[belt_system->belt_segment_count].end_coord = end_coord;
+    belt_system->belt_segment_count++;
+}
 
 // TODO: is 16x16 the correct size now?
 // Store belt data in RAM (16x16 grid)
@@ -208,6 +242,36 @@ void init_belt_grid(void)
             factory_tiles[y][x] = EMPTY;
         }
     }
+}
+
+// Initialize belt segments for all belt systems
+void init_belt_segments(void)
+{
+    // Initialize cog belt system segments
+    // Cog spawner is at (1, 10) - starts moving up
+    add_belt_segment(&cog_belt_system, BELT_UP, 2*8);    // Move up to y=2 (pixel coord 16)
+    add_belt_segment(&cog_belt_system, BELT_RIGHT, 6*8); // Move right to x=6 (pixel coord 48)
+    add_belt_segment(&cog_belt_system, BELT_DOWN, 6*8);  // Move down to y=6 (pixel coord 48)
+    add_belt_segment(&cog_belt_system, BELT_LEFT, 1*8);  // Move left to x=1 (pixel coord 8, assembly machine input)
+    
+    // Initialize chip belt system segments  
+    // Chip spawner is at (2, 2) - follows complex path to assembly machine
+    add_belt_segment(&chip_belt_system, BELT_RIGHT, 6*8); // Move right to x=6 (pixel coord 48)
+    add_belt_segment(&chip_belt_system, BELT_DOWN, 6*8);  // Move down to y=6 (pixel coord 48)
+    add_belt_segment(&chip_belt_system, BELT_LEFT, 1*8);  // Move left to x=1 (pixel coord 8, assembly machine input)
+    
+    // Initialize assembly machine motor belt system
+    // Motors spawn at assembly machine output and move to factory output
+    assembly_machine.belt_system.item_queue.buffer = motors_buffer;
+    assembly_machine.belt_system.item_queue.size = 0;
+    assembly_machine.belt_system.item_queue.capacity = MAX_ITEMS;
+    assembly_machine.belt_system.item_queue.base_sprite_id = MAX_ITEMS * 2;
+    assembly_machine.belt_system.item_queue.next_sprite_id = MAX_ITEMS * 2;
+    assembly_machine.belt_system.item_queue.item_type = ITEM_TYPE_MOTOR;
+    assembly_machine.belt_system.belt_segment_count = 0;
+    
+    // Motor moves down from assembly machine to factory output
+    add_belt_segment(&assembly_machine.belt_system, BELT_DOWN, 13*8); // Move down to factory output (pixel coord 104)
 }
 
 // Get belt type at position (returns NO_BELT if no belt)
@@ -261,12 +325,12 @@ uint8_t would_collide_at_position(uint8_t x, uint8_t y)
     uint8_t pixel_x = x + 8;
     uint8_t pixel_y = y + 16;
 
-    // TODO: duplicated code
-    // Check collision with every existing item in chips queue
-    for (uint8_t i = 0; i < queue_chips.size; i++)
+    // Check collision with every existing item in chips belt system
+    ItemQueue *chips_queue = &chip_belt_system.item_queue;
+    for (uint8_t i = 0; i < chips_queue->size; i++)
     {
         Item item;
-        if (queue_get_at(&queue_chips, i, &item))
+        if (queue_get_at(chips_queue, i, &item))
         {
             uint8_t other_x = item.x + 8;
             uint8_t other_y = item.y + 16;
@@ -277,11 +341,28 @@ uint8_t would_collide_at_position(uint8_t x, uint8_t y)
         }
     }
 
-    // Check collision with every existing item in cogs queue
-    for (uint8_t i = 0; i < queue_cogs.size; i++)
+    // Check collision with every existing item in cogs belt system
+    ItemQueue *cogs_queue = &cog_belt_system.item_queue;
+    for (uint8_t i = 0; i < cogs_queue->size; i++)
     {
         Item item;
-        if (queue_get_at(&queue_cogs, i, &item))
+        if (queue_get_at(cogs_queue, i, &item))
+        {
+            uint8_t other_x = item.x + 8;
+            uint8_t other_y = item.y + 16;
+            if (boxes_overap_8x8(pixel_x, pixel_y, other_x, other_y))
+            {
+                return 1; // Collision detected
+            }
+        }
+    }
+
+    // Check collision with every existing item in motors belt system
+    ItemQueue *motors_queue = &assembly_machine.belt_system.item_queue;
+    for (uint8_t i = 0; i < motors_queue->size; i++)
+    {
+        Item item;
+        if (queue_get_at(motors_queue, i, &item))
         {
             uint8_t other_x = item.x + 8;
             uint8_t other_y = item.y + 16;
@@ -316,6 +397,7 @@ void create_item(uint8_t x, uint8_t y, ItemQueue *queue)
     Item item;
     item.x = x;
     item.y = y;
+    item.current_belt_segment = 0; // Start at first belt segment
     if (queue_enqueue(queue, &item))
     {
         // Set up sprite with unique sprite ID
@@ -410,27 +492,30 @@ uint8_t is_on_screen(uint8_t x, uint8_t y)
     return (x < 152 && y < 136); // 160-8 = 152, 144-8 = 136
 }
 
-// Update all items' positions
-void update_items(ItemQueue *queue)
+// Update all items' positions using belt segments
+void update_items_belt_system(BeltSystem *belt_system)
 {
-    // TODO: Consistent terminology use "assembler" over "assembly machine"
-    // TODO: The first item should really be moved before checking for assembler touch
-    // Check if oldest item touches assembler
+    ItemQueue *queue = &belt_system->item_queue;
+    
+    // Check if oldest item touches assembler (only for non-motor items)
     Item oldest_item;
-    uint8_t item_count = queue->item_type == ITEM_TYPE_COG ? assembly_machine.cog_count : assembly_machine.chip_count;
-    if (queue_peek(queue, &oldest_item) && item_count < assembly_machine.item_capacity)
+    if (queue->item_type != ITEM_TYPE_MOTOR)
     {
-        if (aabb_overlap(oldest_item.x, oldest_item.y, 8, 8, assembly_machine.x, assembly_machine.y, 16, 16))
+        uint8_t item_count = queue->item_type == ITEM_TYPE_COG ? assembly_machine.cog_count : assembly_machine.chip_count;
+        if (queue_peek(queue, &oldest_item) && item_count < assembly_machine.item_capacity)
         {
-            delete_oldest_item(queue);
-            // Determine which counter to increment based on which queue this is
-            if (queue == &queue_cogs)
+            if (aabb_overlap(oldest_item.x, oldest_item.y, 8, 8, assembly_machine.x, assembly_machine.y, 16, 16))
             {
-                assembly_machine.cog_count++;
-            }
-            else if (queue == &queue_chips)
-            {
-                assembly_machine.chip_count++;
+                delete_oldest_item(queue);
+                // Determine which counter to increment based on item type
+                if (queue->item_type == ITEM_TYPE_COG)
+                {
+                    assembly_machine.cog_count++;
+                }
+                else if (queue->item_type == ITEM_TYPE_CHIP)
+                {
+                    assembly_machine.chip_count++;
+                }
             }
         }
     }
@@ -442,44 +527,67 @@ void update_items(ItemQueue *queue)
         uint8_t success = queue_get_at(queue, i, &item);
         ASSERT(success, "Failed to get item from queue");
 
-        // Check if item is on belt
-        FactoryTile belt_dir = get_factory_tile_at_pixel((item.x + 4) / 8, (item.y + 4) / 8); // TODO: Use constants for 4 and 8
-        if (belt_dir == EMPTY)
+        // Skip if no belt segments defined
+        if (belt_system->belt_segment_count == 0)
         {
-            continue; // Item is not on belt, so don't move it
+            continue;
         }
 
+        // Get current belt segment
+        ASSERT(item.current_belt_segment < belt_system->belt_segment_count, "Invalid belt segment index");
+        BeltSegment *current_segment = &belt_system->belt_segments[item.current_belt_segment];
+
         // Convert from tile to pixel coordinates
-        // TODO: explain magic 8 & 16
         uint8_t pixel_x = item.x + 8;
         uint8_t pixel_y = item.y + 16;
 
-        // Calculate new position based on belt direction
+        // Calculate new position based on belt segment direction
         uint8_t new_x = item.x;
         uint8_t new_y = item.y;
         uint8_t new_pixel_x = pixel_x;
         uint8_t new_pixel_y = pixel_y;
+        uint8_t reached_end = 0;
 
-        switch (belt_dir)
+        switch (current_segment->direction)
         {
         case BELT_RIGHT:
             new_x = item.x + 1;
             new_pixel_x = pixel_x + 1;
+            reached_end = (new_x >= current_segment->end_coord);
             break;
         case BELT_LEFT:
             new_x = item.x - 1;
             new_pixel_x = pixel_x - 1;
+            reached_end = (new_x <= current_segment->end_coord);
             break;
         case BELT_DOWN:
             new_y = item.y + 1;
             new_pixel_y = pixel_y + 1;
+            reached_end = (new_y >= current_segment->end_coord);
             break;
         case BELT_UP:
             new_y = item.y - 1;
             new_pixel_y = pixel_y - 1;
+            reached_end = (new_y <= current_segment->end_coord);
             break;
         default:
-            continue; // Should not happen since we already checked for NO_BELT
+            continue;
+        }
+
+        // Check if assembly machine would block movement (for cogs and chips only)
+        uint8_t assembly_machine_blocks = 0;
+        if (queue->item_type != ITEM_TYPE_MOTOR)
+        {
+            // Check if new position would collide with assembly machine
+            if (aabb_overlap(new_x, new_y, 8, 8, assembly_machine.x, assembly_machine.y, 16, 16))
+            {
+                // Check if assembly machine is full for this item type
+                uint8_t item_count = queue->item_type == ITEM_TYPE_COG ? assembly_machine.cog_count : assembly_machine.chip_count;
+                if (item_count >= assembly_machine.item_capacity)
+                {
+                    assembly_machine_blocks = 1;
+                }
+            }
         }
 
         // Check if moving would keep item on screen and not collide with other items
@@ -488,15 +596,21 @@ void update_items(ItemQueue *queue)
         uint8_t would_collide = has_collision_candidate &&
                                 boxes_overap_8x8(collision_candidate.x, collision_candidate.y, new_x, new_y);
         uint8_t on_screen = is_on_screen(new_pixel_x, new_pixel_y);
-        if (on_screen && !would_collide)
+        
+        if (on_screen && !would_collide && !assembly_machine_blocks)
         {
-            // TODO: Consider using index in underlying queue buffer as sprite_id?
             // Move sprite using this item's unique sprite
             move_sprite(item.sprite_id, new_pixel_x, new_pixel_y);
 
-            // Update stored position (in tile coordinates)
+            // Update stored position
             item.x = new_x;
             item.y = new_y;
+
+            // Check if reached end of current segment
+            if (reached_end && item.current_belt_segment < belt_system->belt_segment_count - 1)
+            {
+                item.current_belt_segment++;
+            }
 
             // Store the updated item back to the queue
             queue_set_at(queue, i, item);
@@ -511,9 +625,9 @@ void update_spawner(ItemSpawner *spawner)
     {
         spawner->counter = 0;
         // Only spawn if queue is not at limit
-        if (!queue_is_full(spawner->queue))
+        if (!queue_is_full(&spawner->belt_system->item_queue))
         {
-            create_item(spawner->x, spawner->y, spawner->queue);
+            create_item(spawner->x, spawner->y, &spawner->belt_system->item_queue);
         }
     }
 }
@@ -525,16 +639,17 @@ void update_assembly_machine(AssemblyMachine *assembly_machine)
         assembly_machine->chip_count == assembly_machine->item_capacity)
     {
         // Check if motors queue is not full
-        if (!queue_is_full(&queue_motors))
+        ItemQueue *motor_queue = &assembly_machine->belt_system.item_queue;
+        if (!queue_is_full(motor_queue))
         {
             // Check for collision only with the last motor in the queue
             uint8_t would_collide = 0;
-            if (queue_motors.size > 0)
+            if (motor_queue->size > 0)
             {
                 Item last_motor;
                 // Get the last item in the queue (at size-1)
-                uint8_t last_index = queue_motors.size - 1;
-                last_motor = queue_motors.buffer[last_index];
+                uint8_t last_index = motor_queue->size - 1;
+                last_motor = motor_queue->buffer[last_index];
 
                 // Convert to pixel coordinates for collision check
                 uint8_t spawn_pixel_x = assembly_machine->x;
@@ -547,7 +662,7 @@ void update_assembly_machine(AssemblyMachine *assembly_machine)
 
             if (!would_collide)
             {
-                create_item(assembly_machine->x + 8, assembly_machine->y + 16, &queue_motors);
+                create_item(assembly_machine->x + 8, assembly_machine->y + 16, motor_queue);
                 assembly_machine->cog_count = 0;
                 assembly_machine->chip_count = 0;
             }
@@ -559,11 +674,12 @@ void update_factory_output(FactoryOutput *factory_output)
 {
     // Check if oldest motor touches factory output
     Item oldest_motor;
-    if (queue_peek(&queue_motors, &oldest_motor))
+    ItemQueue *motor_queue = &assembly_machine.belt_system.item_queue;
+    if (queue_peek(motor_queue, &oldest_motor))
     {
         if (aabb_overlap(oldest_motor.x, oldest_motor.y, 8, 8, factory_output->x, factory_output->y, 16, 16))
         {
-            delete_oldest_item(&queue_motors);
+            delete_oldest_item(motor_queue);
             factory_output->motor_count++;
             BGB_printf("Factory output: Motor consumed! Total: %d", factory_output->motor_count);
         }
@@ -579,6 +695,7 @@ void init_factory(void)
 
     // Initialize belt grid and items
     init_belt_grid();
+    init_belt_segments();
 
     // Place some example belts
     // Create a simple loop
@@ -641,14 +758,14 @@ void main(void)
         uint8_t a_pressed = (buttons & J_A) && !(prev_buttons & J_A);
         if (a_pressed)
         {
-            delete_oldest_item(&queue_chips);
+            delete_oldest_item(&chip_belt_system.item_queue);
         }
         prev_buttons = buttons;
 
         // Move existing items
-        update_items(&queue_chips);
-        update_items(&queue_cogs);
-        update_items(&queue_motors);
+        update_items_belt_system(&chip_belt_system);
+        update_items_belt_system(&cog_belt_system);
+        update_items_belt_system(&assembly_machine.belt_system);
 
         // Spawn new items
         update_spawner(&spawner_chip);
