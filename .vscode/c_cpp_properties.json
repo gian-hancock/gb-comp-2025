@@ -3,8 +3,7 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**",
-                "C:/gbdk/include/**"
+                "${workspaceFolder}/gbdk/include/**"
             ],
             "defines": [],
             "compilerPath": "C:/gbdk/bin/lcc.exe",
