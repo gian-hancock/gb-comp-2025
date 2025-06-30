@@ -6,7 +6,7 @@
 #include "../res/empty_factory.h"
 #include "../res/tiles.h"
 #include "util.h"
-#include "tiles.h"
+#include "tile_consts.h"
 
 // Maximum number of items that can exist at once
 #define MAX_ITEMS 4

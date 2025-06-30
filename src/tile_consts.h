@@ -1,5 +1,5 @@
-#ifndef TILES_H
-#define TILES_H
+#ifndef TILE_CONSTS_H
+#define TILE_CONSTS_H
 
 // Item
 #define TILE_MOTOR 129 // Single tile for item sprite (1 + 128)
@@ -18,4 +18,4 @@
 // Background tiles (from empty_factory)
 #define EMPTY_TILE 0 // Empty background tile
 
-#endif // TILES_H
+#endif // TILE_CONSTS_H
