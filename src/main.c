@@ -400,18 +400,19 @@ void create_item(uint8_t x, uint8_t y, ItemQueue *queue) {
 }
 
 void create_assembler(uint8_t grid_x, uint8_t grid_y) {
-  ASSERT(grid_x >= 0 && grid_x < FACTORY_GRID_WIDTH && grid_y >= 0 &&
-             grid_y < FACTORY_GRID_HEIGHT,
+  ASSERT(grid_x >= 0 && grid_x <= FACTORY_GRID_WIDTH - 4 && grid_y >= 0 &&
+             grid_y <= FACTORY_GRID_HEIGHT - 4,
          "assembler out of bounds");
 
-  // Add assembler to the grid
-  factory_tiles[grid_y][grid_x] = ASSEMBLER;
-  factory_tiles[grid_y + 1][grid_x] = ASSEMBLER;
-  factory_tiles[grid_y][grid_x + 1] = ASSEMBLER;
-  factory_tiles[grid_y + 1][grid_x + 1] = ASSEMBLER;
+  // Add assembler to the grid 4x4
+  for (uint8_t y = 0; y < 4; y++) {
+    for (uint8_t x = 0; x < 4; x++) {
+      factory_tiles[grid_y + y][grid_x + x] = ASSEMBLER;
+    }
+  }
 
   // Set background tiles
-  set_bkg_tiles_2x2(grid_x, grid_y, TILE_ASSEMBLER);
+  set_bkg_tiles_4x4(grid_x, grid_y, TILE_ASSEMBLER);
 
   // Initialize assembler
   assembler.item_capacity = 5;
@@ -475,7 +476,7 @@ void update_items_belt_system(BeltSystem *belt_system) {
     if (queue_peek(queue, &oldest_item) &&
         item_count < assembler.item_capacity) {
       if (aabb_overlap(oldest_item.x, oldest_item.y, 8, 8, assembler.x,
-                       assembler.y, 16, 16)) {
+                       assembler.y, 32, 32)) {
         delete_oldest_item(queue);
         // Determine which counter to increment based on item type
         if (queue->item_type == ITEM_TYPE_COG) {
@@ -544,7 +545,7 @@ void update_items_belt_system(BeltSystem *belt_system) {
     uint8_t assembler_blocks = 0;
     if (queue->item_type != ITEM_TYPE_MOTOR) {
       // Check if new position would collide with assembler
-      if (aabb_overlap(new_x, new_y, 8, 8, assembler.x, assembler.y, 16, 16)) {
+      if (aabb_overlap(new_x, new_y, 8, 8, assembler.x, assembler.y, 32, 32)) {
         // Check if assembler is full for this item type
         uint8_t item_count = queue->item_type == ITEM_TYPE_COG
                                  ? assembler.cog_count
