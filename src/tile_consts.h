@@ -12,8 +12,8 @@
 #define TILE_BELT_LEFT (82 + 128)  // Single tile for left-facing belt (210)
 #define TILE_BELT_RIGHT (83 + 128) // Single tile for right-facing belt (211)
 
-// Assembly machine
-#define TILE_ASSEMBLY_MACHINE (48 + 128) // 4x4 tiles starting at tile 176
+// Assembler
+#define TILE_ASSEMBLER (48 + 128) // 4x4 tiles starting at tile 176
 
 // Background tiles (from empty_factory)
 #define EMPTY_TILE 0 // Empty background tile
